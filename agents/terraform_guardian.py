@@ -1,41 +1,43 @@
+import os
 import sys
+import json
+from dotenv import load_dotenv
 
-def analyze_terraform(file_path):
-    with open(file_path, 'r', encoding='utf-8') as f:
-        content = f.read()
+load_dotenv()
 
-    risk_score = 0
-    findings = []
+def read_file(path: str) -> str:
+    with open(path, "r", encoding="utf-8") as f:
+        return f.read()
 
-    if "0.0.0.0/0" in content:
-        risk_score += 40
-        findings.append("Public exposure detected (0.0.0.0/0).")
+def analyze_with_openai(tf_content: str) -> dict:
+    from openai import OpenAI
 
-    if 'instance_type = "t3.large"' in content:
-        risk_score += 20
-        findings.append("High-cost instance detected (t3.large).")
+    api_key = os.getenv("OPENAI_API_KEY")
+    model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
-    if "encrypted = false" in content:
-        risk_score += 30
-        findings.append("Encryption disabled.")
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY not found. Add it to your .env file.")
 
-    risk_score = min(risk_score, 100)
-    return risk_score, findings
+    client = OpenAI(api_key=api_key)
 
+    system = (
+        "You are a Terraform security/governance reviewer. "
+        "Analyze Terraform code for security, cost, and governance risks. "
+        "Return ONLY valid JSON following the schema exactly."
+    )
 
-if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        print("Usage: python agents\\terraform_guardian.py <terraform_file>")
-        sys.exit(1)
+    schema = {
+        "risk_score": "integer 0-100",
+        "summary": "string (1-2 lines)",
+        "findings": [
+            {"title": "string", "severity": "LOW|MEDIUM|HIGH|CRITICAL", "evidence": "string"}
+        ],
+        "recommendations": [
+            {"action": "string", "priority": "P1|P2|P3"}
+        ]
+    }
 
-    file_path = sys.argv[1]
-    score, findings = analyze_terraform(file_path)
-
-    print(f"\nRisk Score: {score}/100\n")
-
-    if findings:
-        print("Findings:")
-        for f in findings:
-            print(f"- {f}")
-    else:
-        print("No major risks detected.")
+    user = f"""
+Terraform code:
+```hcl
+{tf_content}
